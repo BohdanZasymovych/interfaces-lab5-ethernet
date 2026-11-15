@@ -9,6 +9,7 @@
  *                   per second and updates only the value text nodes.
  *   GET /status  -> Status_FormatJson() (application/json), target < 10 ms.
  *   GET /status.cbor -> the same status map in compact application/cbor form.
+ *   GET /ws     -> WebSocket upgrade; sends the JSON status once per second.
  *   anything else -> 404 Not Found.  Non-GET methods -> 405 Method Not Allowed.
  *
  * Every response is sent with:
