@@ -3,6 +3,7 @@
 #include "utils/gps_parser.h"
 #include "utils/bme280.h"
 #include "utils/tcs3472.h"
+#include "utils/net.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -25,8 +26,12 @@ static ui_row_t row_sta = {.y = 140};
 static ui_row_t row_env = {.y = 160};
 static ui_row_t row_clr = {.y = 180};
 static ui_row_t row_lum = {.y = 200};
+static ui_row_t row_net = {.y = 220};  // rows from here on are below the screen in landscape (240 px high)
+static ui_row_t row_ip = {.y = 240};
+static ui_row_t row_gw = {.y = 260};
 
-static ui_row_t* const ui_rows[] = {&row_lat, &row_lon, &row_utc, &row_sat, &row_sta, &row_env, &row_clr, &row_lum};
+static ui_row_t* const ui_rows[] = {&row_lat, &row_lon, &row_utc, &row_sat, &row_sta, &row_env,
+                                    &row_clr, &row_lum, &row_net, &row_ip,  &row_gw};
 
 static uint32_t last_ui_update = 0;
 
@@ -71,6 +76,52 @@ static void UI_DrawStatic(uint16_t node_id) {
     ILI9341_DrawText(10, 160, "ENV: ", COLOR_WHITE, COLOR_BLACK);
     ILI9341_DrawText(10, 180, "CLR: ", COLOR_WHITE, COLOR_BLACK);
     ILI9341_DrawText(10, 200, "LUM: ", COLOR_WHITE, COLOR_BLACK);
+    ILI9341_DrawText(10, 220, "NET: ", COLOR_WHITE, COLOR_BLACK);
+    ILI9341_DrawText(10, 240, "IP:  ", COLOR_WHITE, COLOR_BLACK);
+    ILI9341_DrawText(10, 260, "GW:  ", COLOR_WHITE, COLOR_BLACK);
+}
+
+static void UI_FormatIp(char* dst, size_t size, const uint8_t ip[4]) {
+    snprintf(dst, size, "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+}
+
+// Subnet mask -> prefix length, e.g. 255.255.255.0 -> 24
+static uint8_t UI_MaskPrefix(const uint8_t mask[4]) {
+    uint8_t bits = 0;
+    for (int i = 0; i < 4; i++) {
+        for (uint8_t m = mask[i]; m & 0x80u; m = (uint8_t) (m << 1)) bits++;
+    }
+    return bits;
+}
+
+// NET: state/mode (coloured), IP: address/prefix, GW: gateway. Only reads NET_GetInfo().
+static void UI_UpdateNetRows(char* buf, size_t size) {
+    const net_info_t* net = NET_GetInfo();
+
+    switch (net->state) {
+        case NET_ST_NO_CHIP: UI_UpdateRow(&row_net, "W5500 NOT FOUND", COLOR_RED); break;
+        case NET_ST_NO_LINK: UI_UpdateRow(&row_net, "NO LINK", COLOR_RED); break;
+        case NET_ST_DHCP: UI_UpdateRow(&row_net, "DHCP...", COLOR_CYAN); break;
+        case NET_ST_UP:
+            snprintf(buf, size, "%s  LINK UP", NET_ModeName(net->mode));
+            UI_UpdateRow(&row_net, buf, net->mode == NET_MODE_DHCP ? COLOR_GREEN : COLOR_YELLOW);
+            break;
+        default: UI_UpdateRow(&row_net, "?", COLOR_RED); break;
+    }
+
+    if (net->state != NET_ST_UP) {
+        UI_UpdateRow(&row_ip, "--", COLOR_WHITE);
+        UI_UpdateRow(&row_gw, "--", COLOR_WHITE);
+        return;
+    }
+
+    char ip[16];
+    UI_FormatIp(ip, sizeof(ip), net->ip);
+    snprintf(buf, size, "%s/%u", ip, UI_MaskPrefix(net->mask));
+    UI_UpdateRow(&row_ip, buf, COLOR_WHITE);
+
+    UI_FormatIp(buf, size, net->gw);
+    UI_UpdateRow(&row_gw, buf, COLOR_WHITE);
 }
 
 void UI_Redraw(uint16_t node_id) {
@@ -129,4 +180,6 @@ void UI_Update(uint32_t now) {
         snprintf(buf, sizeof(buf), "%.2f%s", log10f((float) colorSensorData.clear + 1.0f), age);
         UI_UpdateRow(&row_lum, buf, colorSensorData.isStale ? COLOR_RED : COLOR_WHITE);
     }
+
+    UI_UpdateNetRows(buf, sizeof(buf));
 }

@@ -8,6 +8,7 @@ extern volatile bool cli_test_colors_requested;
 extern volatile bool cli_orientation_toggle_requested;
 extern volatile bool cli_get_bme_requested;
 extern volatile bool cli_get_color_requested;
+extern volatile bool cli_get_net_requested;
 
 void USB_CDC_Send_Async(const uint8_t* data, uint16_t len);
 void CDC_CLI_Flush(void);

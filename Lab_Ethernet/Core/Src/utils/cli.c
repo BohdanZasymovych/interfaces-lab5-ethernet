@@ -4,6 +4,8 @@
 #include "utils/ili9341.h"
 #include "utils/bme280.h"
 #include "utils/tcs3472.h"
+#include "utils/net.h"
+#include "utils/http_server.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,6 +16,7 @@ volatile bool cli_test_colors_requested = false;
 volatile bool cli_orientation_toggle_requested = false;
 volatile bool cli_get_bme_requested = false;
 volatile bool cli_get_color_requested = false;
+volatile bool cli_get_net_requested = false;
 
 static void CLI_Send_Response(const char* resp) {
     char full_resp[300];
@@ -123,6 +126,14 @@ static bool Cmd_TestColors(char* resp, size_t size) {
     return true;
 }
 
+// Answered from the main loop (CLI_Process_Pending), where net and HTTP state are updated
+static bool Cmd_Net(char* resp, size_t size) {
+    (void) resp;
+    (void) size;
+    cli_get_net_requested = true;
+    return false;
+}
+
 static bool Cmd_DispInfo(char* resp, size_t size) {
     uint32_t us, bytes;
     ILI9341_GetLastTileMetrics(&us, &bytes);
@@ -156,6 +167,7 @@ static const struct {
         {"TEST COLORS", Cmd_TestColors},
         {"DISP INFO", Cmd_DispInfo},
         {"ORIENT", Cmd_Orient},
+        {"NET", Cmd_Net},
 };
 
 void Process_CLI_Command(const char* cmd) {
@@ -179,7 +191,7 @@ void Process_CLI_Command(const char* cmd) {
     snprintf(resp, sizeof(resp),
              "ERROR: Unknown command '%s'. Available: VER, GET POS, GET TIME, GET BME / GET ENV, GET TCS / GET COLOR, "
              "RAW ON, RAW OFF, "
-             "FLASH SAVE, FLASH INFO, GET ERRORS, TEST COLORS, DISP INFO, ORIENT\r\n",
+             "FLASH SAVE, FLASH INFO, GET ERRORS, TEST COLORS, DISP INFO, ORIENT, NET\r\n",
              clean_cmd);
     CLI_Send_Response(resp);
 }
@@ -216,6 +228,25 @@ void CLI_Process_Pending(void) {
                      colorSensorData.clear, colorSensorData.red, colorSensorData.green, colorSensorData.blue,
                      colorSensorData.isStale ? 1 : 0, (unsigned long) age_ms);
         }
+        CLI_Send_Response(resp);
+    }
+
+    if (cli_get_net_requested) {
+        cli_get_net_requested = false;
+
+        // Only cached state: no SPI access to the W5500 here
+        const net_info_t* n = NET_GetInfo();
+        uint32_t now = HAL_GetTick();
+        uint32_t net_up_s = (n->state == NET_ST_UP) ? (now - n->up_since_ms) / 1000u : 0;
+
+        snprintf(resp, sizeof(resp),
+                 "STATE:%s, MODE:%s, LINK:%s, IP:%u.%u.%u.%u, MASK:%u.%u.%u.%u, GW:%u.%u.%u.%u, "
+                 "MAC:%02x:%02x:%02x:%02x:%02x:%02x, LEASE_S:%lu, NET_UP_S:%lu, HTTP_UP_S:%lu, HTTP_REQ:%lu\r\n",
+                 NET_StateName(n->state), NET_ModeName(n->mode), n->link_up ? "UP" : "DOWN", n->ip[0], n->ip[1],
+                 n->ip[2], n->ip[3], n->mask[0], n->mask[1], n->mask[2], n->mask[3], n->gw[0], n->gw[1], n->gw[2],
+                 n->gw[3], n->mac[0], n->mac[1], n->mac[2], n->mac[3], n->mac[4], n->mac[5], (unsigned long) n->lease_s,
+                 (unsigned long) net_up_s, (unsigned long) HTTP_GetUptimeS(now),
+                 (unsigned long) HTTP_GetRequestCount());
         CLI_Send_Response(resp);
     }
 }
