@@ -18,8 +18,9 @@ Lab_Ethernet/
 │   ├── Inc/utils/                      headers of this project's own modules
 │   │   ├── w5500_port.h                W5500 glue: SPI2, CS, reset, ioLibrary callbacks
 │   │   ├── net.h                       MAC, link, DHCP with static fallback
-│   │   ├── status.h                    status snapshot + /status JSON
-│   │   ├── http_server.h               HTTP server on port 80
+│   │   ├── status.h                    status snapshot + /status JSON and CBOR
+│   │   ├── http_server.h               HTTP server on port 80, WebSocket /ws
+│   │   ├── mdns.h                      mDNS responder (bp-411.local)
 │   │   ├── web_page.h                  the page served at /
 │   │   ├── bme280.h                    BME280 driver: forced mode, compensation, stale
 │   │   ├── tcs3472.h                   TCS3472 driver: init, C/R/G/B read, stale
@@ -50,6 +51,7 @@ host-setup/                             udev rule for a stable /dev path
 | W5500_RST | PB1 |
 | W5500 power | 5V (VBUS) |
 | USART1: TX / RX | PA9 / PA10 |
+| USB (CLI) | PA11 / PA12, OTG FS, CDC ACM |
 | Status LED | PC13 |
 
 ## Buses and rates
@@ -77,7 +79,7 @@ host-setup/                             udev rule for a stable /dev path
 
 ### Transport
 
-The W5500 module is used it has the MAC, PHY and a hardware TCP/IP stack (TCP, UDP, IPv4, ARP, ICMP), 8 sockets and 32 KB of buffers. The MCU only reads and writes registers and socket buffers over SPI. Ping and ARP are answered by the chip itself.
+The W5500 module is used. It has the MAC, PHY and a hardware TCP/IP stack (TCP, UDP, IPv4, ARP, ICMP), 8 sockets and 32 KB of buffers. The MCU only reads and writes registers and socket buffers over SPI. Ping and ARP are answered by the chip itself.
 
 Software layers:
 
@@ -86,8 +88,9 @@ Software layers:
 | WIZnet ioLibrary | `Middlewares/Third_Party/WIZnet` | BSD-like socket API, W5500 registers, DHCP client |
 | Port | `w5500_port.c` | SPI2 byte/burst callbacks, CS, hardware reset, `VERSIONR == 0x04` check |
 | Network | `net.c` | MAC, link, DHCP → static fallback state machine |
-| Data | `status.c` | one snapshot of GPS + sensors, JSON formatting |
-| HTTP | `http_server.c` | socket state machines on port 80, routing |
+| Data | `status.c` | one snapshot of GPS + sensors, JSON and CBOR formatting |
+| HTTP | `http_server.c` | socket state machines on port 80, routing, WebSocket |
+| mDNS | `mdns.c` | answers `bp-411.local` on UDP 5353 |
 | Page | `web_page.c` | HTML/JS served at `/` |
 
 Everything runs from the main loop and never blocks on the network. Sensors are read in the loop, and the HTTP server only formats the last snapshot, so a request never touches I2C or UART.
@@ -98,7 +101,7 @@ Everything runs from the main loop and never blocks on the network. Sensors are 
 - **DHCP first:** started when the PHY link comes up. The ioLibrary client runs on socket 7.
 - **Static fallback:** if there is no lease within **10 s**, the firmware uses `192.168.4.50/24` and gateway `192.168.4.1` (`NET_STATIC_*` in `net.h`).
 - **Link loss:** the IP is cleared, and the DHCP → static cycle runs again on re-plug. A failed lease renewal restarts the same cycle.
-- **Socket buffers:** 2 KB TX and 2 KB RX per socket. HTTP uses sockets 0–3, DHCP socket 7.
+- **Socket buffers:** 2 KB TX and 2 KB RX per socket. HTTP uses sockets 0–3, mDNS socket 6, DHCP socket 7.
 - **Shown on** the display (`NET` / `IP` / `GW` rows), in the `NET` CLI command and in the `net` object of `/status`.
 
 | State (display `NET:` row) | Meaning |
@@ -111,12 +114,14 @@ Everything runs from the main loop and never blocks on the network. Sensors are 
 
 ### HTTP server
 
-HTTP/1.1 on port 80. One request per connection (`Connection: close`). Only the request line is parsed; headers are read and dropped.
+HTTP/1.1 on port 80. One request per connection (`Connection: close`), except `/ws`, which keeps its socket open. Only the request line is parsed; headers are read and dropped.
 
 | Request | Response |
 |---|---|
 | `GET /` | `200`, `text/html`, the web page |
 | `GET /status` (query string ignored) | `200`, `application/json`, `Access-Control-Allow-Origin: *` |
+| `GET /status.cbor` | `200`, `application/cbor` (see [CBOR](#cbor-status-endpoint)) |
+| `GET /ws` | `101 Switching Protocols`, status JSON pushed every second (see [WebSocket](#websocket-status-updates)) |
 | other path | `404` |
 | other method | `405`, `Allow: GET` |
 | unparseable request line | `400` |
@@ -152,26 +157,26 @@ Values that never arrived are `null`, never `0`. Numbers are printed with intege
 
 ### Web page
 
-One self-contained HTML file (CSS and JS inline, about 5.8 KB in flash), with no framework and no CDN, because the board is often on a direct link without internet.
+One self-contained HTML file (CSS and JS inline, about 5.6 KB in flash), with no framework and no CDN, because the board is often on a direct link without internet.
 
-- Polls `/status` once per second (`setTimeout` chain; a request is aborted after 900 ms).
+- Receives the status JSON once per second over a WebSocket (`/ws`) and reconnects 1 s after the connection drops.
 - The DOM is built once. An update only changes the `textContent`/`className` of values that changed, so nothing flickers.
 - GPS and Environment cards show a `live` / `stale N s` / `no data` badge and the data age. Stale values are dimmed.
-- If the board stops answering, an `offline` badge appears, the last values stay, and their age keeps growing.
+- If the connection drops, a `reconnecting` badge appears, the last values stay, and their age keeps growing.
 - A Network card shows the mode, IP, mask, gateway and MAC.
 
-The 1 Hz refresh is shown in the [demo video](assets/demo-board-and-page-1hz.mp4) (from about 0:16). It was recorded with the first version of the page, which displayed the raw `/status` JSON. The current page is in the [WebSocket screenshot](#websocket-status-updates).
+The 1 Hz refresh is shown in the [demo video](assets/demo-board-and-page-1hz.mp4) (from about 0:16). It was recorded with the first version of the page, which polled `/status` and displayed the raw JSON. The current page is in the [WebSocket screenshot](#websocket-status-updates).
 
 ### Host connection setup
 
-To communicate with the STM32 either set static ip of the STM's default gateway to the ethernet port it is connected to:
+Static mode: give the PC's port the board's gateway address, `192.168.4.1/24`, with no DHCP server running:
 ```bash
-sudo ip addr add 192.168.4.1 dev eno1
+sudo ip addr add 192.168.4.1/24 dev eno1
 ```
 
-Or start DHCP server on this port:
+DHCP mode: run a DHCP server on the port (NetworkManager "shared" mode, the PC becomes `10.42.0.1/24`):
 ```bash
-nmcli connection add type ethernet ifname eno1 con-name stm32-webserver-dhcp ipv4.method ipv4.addresses 10.43.0.1/24 shared ipv6.method disabled
+nmcli connection add type ethernet ifname eno1 con-name stm32-webserver-dhcp ipv4.method shared ipv6.method disabled
 nmcli connection up stm32-webserver-dhcp
 ```
 
@@ -184,7 +189,7 @@ The board asks for an address only when the link comes up, so reset it or re-plu
 
 - Init: chip ID must be `0x60`, then the calibration blocks are read, then the sensor is configured. Every step is checked, and a failed init is retried once per second.
 - **Forced mode**: oversampling x1 for T/P/RH, IIR filter coefficient 4. The sensor sleeps between readings.
-- One reading per second: trigger measurment, wait 10 ms, poll the status register until `measuring` clears, then read 8 bytes from. Values are compensated with the Bosch reference integer routines.
+- One reading per second: trigger a measurement, wait 10 ms, poll the status register until `measuring` clears, then read 8 data bytes. Values are compensated with the Bosch reference integer routines.
 
 ### TCS3472
 
@@ -270,7 +275,7 @@ I2C and SPI2 (W5500) use polling, so they add no interrupt that could delay GPS 
 
 ## Network experiments
 
-All on a direct cable between the board and the laptop's `eno1` (setup in [Host setup](#host-setup-used-in-the-experiments)).
+All on a direct cable between the board and the laptop's `eno1` (setup in [Host connection setup](#host-connection-setup)).
 
 ### 1. DHCP mode: reachability, ARP, `/status`
 
@@ -295,16 +300,16 @@ rtt min/avg/max/mdev = 0.115/0.141/0.188/0.032 ms
 - The ARP entry has the UID-derived MAC `02:0d:3d:92:75:c4`, the same as in the JSON and in `NET`. The DHCP lease is 3600 s.
 - In the JSON, `env` is fresh (0.3 s) and GPS is stale. The test ran indoors with no satellites (`sats: 0`), so the position is the last fix, 153 s old, and `stale.gps` is `true` as intended.
 
-Below answer of the board for the sent over UART `NET` commnd is present:
+The board's reply to the `NET` command sent over the USB CLI:
 ```text
 [CLI] STATE:UP, MODE:DHCP, LINK:UP, IP:10.42.0.33, MASK:255.255.255.0, GW:10.42.0.1, MAC:02:0d:3d:92:75:c4, LEASE_S:3600, NET_UP_S:32, HTTP_UP_S:32, HTTP_REQ:31
 ```
 
-It was captured when board was in the DHCP mode and contains the same address and mask as above (`10.42.0.33/24`), default gateway match to the ip of the port set when configuring DHCP and mac match the generated one.
+It was captured in DHCP mode: the address and mask match the ones above (`10.42.0.33/24`), the gateway is the PC's port address, and the MAC is the generated one.
 
 ### 2. TCP traffic of the page polling `/status` (tcpdump)
 
-Below capture of the of the trafic on the `eno1` while the page was open: 13 requests in 13 s, one TCP connection per request.
+Traffic on `eno1` while the page was open: 13 requests in 13 s, one TCP connection per request.
 
 ```text
 ❯ sudo tcpdump -i eno1
@@ -499,8 +504,7 @@ rtt min/avg/max/mdev = 0.112/0.135/0.159/0.019 ms
 
 ### mDNS/Bonjour hostname
 
-Added an mDNS responder for the Ethernet interface. The device is available by
-hostname `bp-411.local` instead of requiring a numeric IP address.
+Added an mDNS responder for the Ethernet interface. The device is available by hostname `bp-411.local` instead of requiring a numeric IP address.
 
 - UDP port: `5353`
 - Multicast address: `224.0.0.251`
@@ -537,14 +541,11 @@ round-trip min/avg/max/stddev = 0.408/0.503/0.688/0.131 ms
 
 ![/status opened by hostname bp-411.local in the browser](assets/mdns-status-in-browser.png)
 
-The hostname resolves on the local Ethernet segment without a router or an
-external DNS server. LLMNR is not used; macOS uses Bonjour/mDNS for this test.
+The hostname resolves on the local Ethernet segment without a router or an external DNS server. LLMNR is not used; macOS uses Bonjour/mDNS for this test.
 
 ### CBOR status endpoint
 
-Added a compact binary representation of the device status. The existing JSON
-endpoint remains available at `/status`; CBOR is provided at `/status.cbor` for
-machine-to-machine communication with lower payload overhead.
+Added a compact binary representation of the device status. The existing JSON endpoint remains available at `/status`; CBOR is provided at `/status.cbor` for machine-to-machine communication with lower payload overhead.
 
 - Endpoint: `GET /status.cbor`
 - Content type: `application/cbor`
@@ -577,13 +578,11 @@ Access-Control-Allow-Origin: *
 Connection: close
 ```
 
-The endpoint is intended for software clients; browsers may display or
-download the response as binary data rather than render it as text.
+The endpoint is intended for software clients; browsers may display or download the response as binary data rather than render it as text.
 
 ### WebSocket status updates
 
-Added a WebSocket endpoint for push-based status updates. The web page opens a
-persistent connection and receives the status JSON once per second.
+Added a WebSocket endpoint for push-based status updates. The web page opens a persistent connection and receives the status JSON once per second.
 
 - Endpoint: `ws://bp-411.local/ws`
 - Handshake: HTTP `101 Switching Protocols`
