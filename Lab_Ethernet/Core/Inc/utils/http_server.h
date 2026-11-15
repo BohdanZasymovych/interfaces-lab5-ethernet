@@ -8,6 +8,7 @@
  *   GET /        -> the static HTML page (text/html). It polls /status once
  *                   per second and updates only the value text nodes.
  *   GET /status  -> Status_FormatJson() (application/json), target < 10 ms.
+ *   GET /status.cbor -> the same status map in compact application/cbor form.
  *   anything else -> 404 Not Found.  Non-GET methods -> 405 Method Not Allowed.
  *
  * Every response is sent with:

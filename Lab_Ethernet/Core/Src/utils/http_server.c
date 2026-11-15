@@ -34,6 +34,7 @@ static uint32_t http_config_version;     // Last NET_GetInfo()->config_version s
 // Shared buffers: a request is read and answered within one call, so one set is enough for all sockets
 static char http_rx_buf[HTTP_REQ_BUF_SIZE];
 static char http_json_buf[STATUS_JSON_MAX_LEN];
+static uint8_t http_cbor_buf[STATUS_CBOR_MAX_LEN];
 static char http_tx_buf[HTTP_HEADER_MAX_LEN + STATUS_JSON_MAX_LEN];  // headers + a small body in one send()
 
 typedef struct {
@@ -109,7 +110,7 @@ static bool http_send_all(uint8_t sn, const uint8_t* data, uint32_t len) {
  * Small responses (header + body fit in http_tx_buf) go out in one send(), so
  * usually in one TCP segment; larger bodies (the page) follow the headers in chunks.
  */
-static bool http_send_response(uint8_t sn, int code, const char* content_type, const char* body, uint32_t body_len,
+static bool http_send_response(uint8_t sn, int code, const char* content_type, const void* body, uint32_t body_len,
                                const char* extra_headers) {
     int hlen = snprintf(http_tx_buf, HTTP_HEADER_MAX_LEN,
                         "HTTP/1.1 %d %s\r\n"
@@ -149,6 +150,13 @@ static bool http_route(uint8_t sn, const char* method, const char* path, uint32_
         size_t len = Status_FormatJson(http_json_buf, sizeof(http_json_buf), now);
         if (len == 0) return http_send_text(sn, 500, "Status does not fit the buffer\n", NULL);
         return http_send_response(sn, 200, "application/json", http_json_buf, (uint32_t) len,
+                                  "Access-Control-Allow-Origin: *\r\n");
+    }
+
+    if (strcmp(path, "/status.cbor") == 0) {
+        size_t len = Status_FormatCbor(http_cbor_buf, sizeof(http_cbor_buf), now);
+        if (len == 0) return http_send_text(sn, 500, "Status does not fit the buffer\n", NULL);
+        return http_send_response(sn, 200, "application/cbor", http_cbor_buf, (uint32_t) len,
                                   "Access-Control-Allow-Origin: *\r\n");
     }
 

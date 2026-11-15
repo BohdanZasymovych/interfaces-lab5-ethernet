@@ -211,3 +211,152 @@ size_t Status_FormatJson(char* buf, size_t len, uint32_t now) {
     }
     return w.pos;
 }
+
+/* ---------- Compact CBOR writer ---------- */
+typedef struct {
+    uint8_t* buf;
+    size_t len;
+    size_t pos;
+    bool overflow;
+} cbor_writer_t;
+
+static void cbor_put_byte(cbor_writer_t* w, uint8_t value) {
+    if (w->pos >= w->len) {
+        w->overflow = true;
+        return;
+    }
+    w->buf[w->pos++] = value;
+}
+
+static void cbor_put_bytes(cbor_writer_t* w, const uint8_t* data, size_t len) {
+    if (w->overflow || len > w->len - w->pos) {
+        w->overflow = true;
+        return;
+    }
+    memcpy(w->buf + w->pos, data, len);
+    w->pos += len;
+}
+
+static void cbor_put_uint(cbor_writer_t* w, uint32_t value) {
+    if (value < 24u) {
+        cbor_put_byte(w, (uint8_t) value);
+    } else if (value <= 0xFFu) {
+        cbor_put_byte(w, 0x18u);
+        cbor_put_byte(w, (uint8_t) value);
+    } else {
+        cbor_put_byte(w, 0x1Au);
+        cbor_put_byte(w, (uint8_t) (value >> 24));
+        cbor_put_byte(w, (uint8_t) (value >> 16));
+        cbor_put_byte(w, (uint8_t) (value >> 8));
+        cbor_put_byte(w, (uint8_t) value);
+    }
+}
+
+static void cbor_put_map(cbor_writer_t* w, uint8_t count) {
+    cbor_put_byte(w, (uint8_t) (0xA0u | count));
+}
+
+static void cbor_put_text(cbor_writer_t* w, const char* text) {
+    size_t len = strlen(text);
+    if (len >= 24u) {
+        cbor_put_byte(w, 0x78u);
+        cbor_put_byte(w, (uint8_t) len);
+    } else {
+        cbor_put_byte(w, (uint8_t) (0x60u | len));
+    }
+    cbor_put_bytes(w, (const uint8_t*) text, len);
+}
+
+static void cbor_put_key(cbor_writer_t* w, const char* key) {
+    cbor_put_text(w, key);
+}
+
+static void cbor_put_null(cbor_writer_t* w) {
+    cbor_put_byte(w, 0xF6u);
+}
+
+static void cbor_put_bool(cbor_writer_t* w, bool value) {
+    cbor_put_byte(w, value ? 0xF5u : 0xF4u);
+}
+
+static void cbor_put_float(cbor_writer_t* w, bool valid, float value) {
+    uint32_t bits;
+    if (!valid || !isfinite(value)) {
+        cbor_put_null(w);
+        return;
+    }
+    memcpy(&bits, &value, sizeof(bits));
+    cbor_put_byte(w, 0xFAu);  // IEEE-754 binary32, network byte order
+    cbor_put_byte(w, (uint8_t) (bits >> 24));
+    cbor_put_byte(w, (uint8_t) (bits >> 16));
+    cbor_put_byte(w, (uint8_t) (bits >> 8));
+    cbor_put_byte(w, (uint8_t) bits);
+}
+
+static void cbor_put_ip(cbor_writer_t* w, const uint8_t ip[4]) {
+    char text[16];
+    snprintf(text, sizeof(text), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+    cbor_put_text(w, text);
+}
+
+static void cbor_put_mac(cbor_writer_t* w, const uint8_t mac[6]) {
+    char text[18];
+    snprintf(text, sizeof(text), "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    cbor_put_text(w, text);
+}
+
+size_t Status_FormatCbor(uint8_t* buf, size_t len, uint32_t now) {
+    if (buf == NULL || len == 0) return 0;
+
+    const device_status_t* s = &device_status;
+    const net_info_t* net = NET_GetInfo();
+    cbor_writer_t w = {.buf = buf, .len = len, .pos = 0, .overflow = false};
+
+    cbor_put_map(&w, 8);
+    cbor_put_key(&w, "proto_ver"); cbor_put_uint(&w, STATUS_PROTO_VER);
+    cbor_put_key(&w, "device_id"); cbor_put_text(&w, s->device_id);
+    cbor_put_key(&w, "time_utc");
+    if (s->time_utc[0] != '\0') cbor_put_text(&w, s->time_utc); else cbor_put_null(&w);
+
+    cbor_put_key(&w, "gps");
+    cbor_put_map(&w, 4);
+    cbor_put_key(&w, "lat"); cbor_put_float(&w, s->gps.valid, (float) s->gps.lat);
+    cbor_put_key(&w, "lon"); cbor_put_float(&w, s->gps.valid, (float) s->gps.lon);
+    cbor_put_key(&w, "fix"); cbor_put_uint(&w, s->gps.fix);
+    cbor_put_key(&w, "sats"); cbor_put_uint(&w, s->gps.sats);
+
+    cbor_put_key(&w, "env");
+    cbor_put_map(&w, 4);
+    cbor_put_key(&w, "t_c"); cbor_put_float(&w, s->env.valid, s->env.t_c);
+    cbor_put_key(&w, "p_hpa"); cbor_put_float(&w, s->env.valid, s->env.p_hpa);
+    cbor_put_key(&w, "rh_pct"); cbor_put_float(&w, s->env.valid, s->env.rh_pct);
+    cbor_put_key(&w, "lum"); cbor_put_float(&w, s->env.lum_valid, s->env.lum);
+
+    cbor_put_key(&w, "stale_age_s");
+    cbor_put_map(&w, 2);
+    cbor_put_key(&w, "gps");
+    if (s->gps.timestamp_ms == 0) cbor_put_null(&w);
+    else cbor_put_float(&w, true, (float) (now - s->gps.timestamp_ms) / 1000.0f);
+    cbor_put_key(&w, "env");
+    if (s->env.timestamp_ms == 0) cbor_put_null(&w);
+    else cbor_put_float(&w, true, (float) (now - s->env.timestamp_ms) / 1000.0f);
+
+    cbor_put_key(&w, "stale");
+    cbor_put_map(&w, 2);
+    cbor_put_key(&w, "gps"); cbor_put_bool(&w, status_is_stale(s->gps.timestamp_ms, now));
+    cbor_put_key(&w, "env"); cbor_put_bool(&w, status_is_stale(s->env.timestamp_ms, now));
+
+    cbor_put_key(&w, "net");
+    cbor_put_map(&w, 5);
+    cbor_put_key(&w, "mode"); cbor_put_text(&w, NET_ModeName(net->mode));
+    cbor_put_key(&w, "ip"); cbor_put_ip(&w, net->ip);
+    cbor_put_key(&w, "mask"); cbor_put_ip(&w, net->mask);
+    cbor_put_key(&w, "gw"); cbor_put_ip(&w, net->gw);
+    cbor_put_key(&w, "mac"); cbor_put_mac(&w, net->mac);
+
+    if (w.overflow) {
+        buf[0] = 0;
+        return 0;
+    }
+    return w.pos;
+}

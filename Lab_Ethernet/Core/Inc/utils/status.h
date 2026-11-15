@@ -39,6 +39,7 @@
 #define STATUS_PROTO_VER     1u     // Schema version sent as "proto_ver"
 #define STATUS_STALE_MS      3000u  // A block older than this is marked stale (same as the display)
 #define STATUS_JSON_MAX_LEN  512u   // Buffer size the HTTP server should use for the /status body
+#define STATUS_CBOR_MAX_LEN  384u   // Buffer size for the compact /status.cbor body
 #define STATUS_DEVICE_ID_LEN 16u
 #define STATUS_TIME_UTC_LEN  21u  // "YYYY-MM-DDThh:mm:ssZ" + '\0'
 
@@ -101,5 +102,11 @@ const device_status_t* Status_Get(void);
  * @return length of the JSON without the terminating '\0', or 0 if it did not fit.
  */
 size_t Status_FormatJson(char* buf, size_t len, uint32_t now);
+
+/**
+ * Format the same status snapshot as a CBOR map for /status.cbor.
+ * @return encoded length, or 0 if the output buffer did not fit.
+ */
+size_t Status_FormatCbor(uint8_t* buf, size_t len, uint32_t now);
 
 #endif
