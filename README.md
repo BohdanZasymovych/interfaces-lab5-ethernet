@@ -2,7 +2,7 @@
 
 STM32F401 ("Black Pill") firmware that reads GPS (UART), a BME280 (temperature / pressure / humidity) and a TCS3472 colour sensor (I2C), shows them on an ILI9341 SPI-TFT and serves the same data over Ethernet through a WIZnet W5500: `GET /status` returns JSON, `GET /` returns a web page that refreshes once per second. The network comes up with DHCP and falls back to a static address when no DHCP server answers.
 
-Builds on the previous labs (GPS ↔ MCU ↔ PC, SPI display, I2C sensors); their parts are kept below.
+**Demo video (36 s):** [assets/demo-board-and-page-1hz.mp4](assets/demo-board-and-page-1hz.mp4). It shows the wiring, the display with the network rows, and the page refreshing once per second.
 
 **Contributors:**
 - **Bohdan Zasymovych**
@@ -32,28 +32,25 @@ Lab_Ethernet/
 ├── Middlewares/Third_Party/WIZnet/     WIZnet ioLibrary_Driver (commit e179197): socket API, W5500 driver, DHCP client
 └── USB_DEVICE/                         CubeMX USB-CDC (VCP) stack
 
-assets/                                 screenshots and photo used in this README
+assets/                                 screenshots, photos and videos used in this README
 host-setup/                             udev rule for a stable /dev path
 ```
 
 
 ## Pin map
 
-| Signal | Pin | Notes |
-|---|---|---|
-| I2C2_SCL | PB10 | open drain, AF4 |
-| I2C2_SDA | PB3 | open drain, AF9 |
-| SPI1_SCK / MOSI | PA5 / PA7 | display |
-| LCD_CS / DC / RESET | PB6 / PB7 / PB8 | GPIO outputs |
-| LCD_LED | 3.3V | backlight |
-| SPI2_SCK / MISO / MOSI | PB13 / PB14 / PB15 | W5500, AF5 |
-| W5500_CS | PB12 | GPIO output, active low |
-| W5500_RST | PB1 | GPIO output, active low |
-| W5500 INT | not connected | sockets are polled |
-| W5500 power | 5V (VBUS) | module's own 3.3 V regulator; common GND |
-| USART1_TX / RX | PA9 / PA10 | to GPS RX / from GPS TX |
-| Status LED | PC13 | toggles every 50 ms in the main loop |
-| USB | native OTG FS | CDC ACM (VID `0483`, PID `5740`) |
+| Signal | Pin |
+|---|---|
+| I2C2: SCL / SDA | PB10, PB3 |
+| SPI1: SCK / MOSI | PA5 / PA7 |
+| LCD_CS / DC / RESET | PB6 / PB7 / PB8 |
+| LCD_LED | 3.3V |
+| SPI2: SCK / MISO / MOSI | PB13 / PB14 / PB15 |
+| W5500_CS | PB12 |
+| W5500_RST | PB1 |
+| W5500 power | 5V (VBUS) |
+| USART1: TX / RX | PA9 / PA10 |
+| Status LED | PC13 |
 
 ## Buses and rates
 
@@ -80,7 +77,7 @@ host-setup/                             udev rule for a stable /dev path
 
 ### Transport
 
-Variant A of the assignment: **Ethernet through a W5500 module on SPI**. The STM32F401 has no Ethernet MAC, so an RMII PHY (LAN8720) is not an option. The W5500 has the MAC, PHY and a hardware TCP/IP stack (TCP, UDP, IPv4, ARP, ICMP), 8 sockets and 32 KB of buffers. The MCU only reads and writes registers and socket buffers over SPI. Ping and ARP are answered by the chip itself.
+The W5500 module is used it has the MAC, PHY and a hardware TCP/IP stack (TCP, UDP, IPv4, ARP, ICMP), 8 sockets and 32 KB of buffers. The MCU only reads and writes registers and socket buffers over SPI. Ping and ARP are answered by the chip itself.
 
 Software layers:
 
@@ -99,7 +96,7 @@ Everything runs from the main loop and never blocks on the network. Sensors are 
 
 - **MAC:** `02:xx:xx:xx:xx:xx`, from an FNV-1a hash of the 96-bit chip UID. `0x02` marks it locally administered and unicast. It is unique per board and the same after every reboot.
 - **DHCP first:** started when the PHY link comes up. The ioLibrary client runs on socket 7.
-- **Static fallback:** if there is no lease within **10 s**, the firmware uses `192.168.4.50/24`, gateway `192.168.4.1` (`NET_STATIC_*` in `net.h`).
+- **Static fallback:** if there is no lease within **10 s**, the firmware uses `192.168.4.50/24` and gateway `192.168.4.1` (`NET_STATIC_*` in `net.h`).
 - **Link loss:** the IP is cleared, and the DHCP → static cycle runs again on re-plug. A failed lease renewal restarts the same cycle.
 - **Socket buffers:** 2 KB TX and 2 KB RX per socket. HTTP uses sockets 0–3, DHCP socket 7.
 - **Shown on** the display (`NET` / `IP` / `GW` rows), in the `NET` CLI command and in the `net` object of `/status`.
@@ -163,22 +160,22 @@ One self-contained HTML file (CSS and JS inline, about 5.8 KB in flash), with no
 - If the board stops answering, an `offline` badge appears, the last values stay, and their age keeps growing.
 - A Network card shows the mode, IP, mask, gateway and MAC.
 
-### Host setup used in the experiments
+The 1 Hz refresh is shown in the [demo video](assets/demo-board-and-page-1hz.mp4) (from about 0:16). It was recorded with the first version of the page, which displayed the raw `/status` JSON. The current page is in the [WebSocket screenshot](#websocket-status-updates).
 
-The board was connected straight to the laptop's wired port `eno1`.
+### Host connection setup
 
+To communicate with the STM32 either set static ip of the STM's default gateway to the ethernet port it is connected to:
 ```bash
-# DHCP: NetworkManager "shared" mode runs a DHCP server, the PC is 10.42.0.1/24
-nmcli connection add type ethernet ifname eno1 con-name board-dhcp ipv4.method shared ipv6.method disabled
-nmcli connection up board-dhcp
-
-# Static: no DHCP server, PC in the fallback subnet
-nmcli connection add type ethernet ifname eno1 con-name board-static \
-      ipv4.method manual ipv4.addresses 192.168.4.1/24 ipv6.method disabled
-nmcli connection up board-static
+sudo ip addr add 192.168.4.1 dev eno1
 ```
 
-The board asks for an address only when the link comes up, so it is reset or re-plugged after switching modes.
+Or start DHCP server on this port:
+```bash
+nmcli connection add type ethernet ifname eno1 con-name stm32-webserver-dhcp ipv4.method ipv4.addresses 10.43.0.1/24 shared ipv6.method disabled
+nmcli connection up stm32-webserver-dhcp
+```
+
+The board asks for an address only when the link comes up, so reset it or re-plug after switching modes.
 
 
 ## Sensors
@@ -223,7 +220,7 @@ GW:  10.42.0.1
 - Text is a 5×7 font in 6×8 cells, drawn with one SPI DMA burst per row.
 - The "address" is the 96-bit chip unique ID (`0x1FFF7A10`) XOR-folded to 16 bits.
 
-![Display with GPS and sensor rows](assets/display-gps-and-sensors.jpg)
+![Display in DHCP mode: GPS, sensor and network rows](assets/display-dhcp.jpg)
 
 
 ## CLI
@@ -290,56 +287,24 @@ rtt min/avg/max/mdev = 0.115/0.141/0.188/0.032 ms
 ❯ arp -a 10.42.0.33
 ? (10.42.0.33) at 02:0d:3d:92:75:c4 [ether] on eno1
 
-❯ arp 10.42.0.33
-Address                  HWtype  HWaddress           Flags Mask            Iface
-10.42.0.33               ether   02:0d:3d:92:75:c4   C                     eno1
-
 ❯ curl http://10.42.0.33/status
 {"proto_ver":1,"device_id":"bp-401-630a","time_utc":"2007-04-01T09:48:23Z","gps":{"lat":49.840238,"lon":24.035300,"fix":1,"sats":0},"env":{"t_c":21.5,"p_hpa":984.6,"rh_pct":29.7,"lum":4.36},"stale_age_s":{"gps":153.4,"env":0.3},"stale":{"gps":true,"env":false},"net":{"mode":"DHCP","ip":"10.42.0.33","mask":"255.255.255.0","gw":"10.42.0.1","mac":"02:0d:3d:92:75:c4"}}
-
-[CLI] STATE:UP, MODE:DHCP, LINK:UP, IP:10.42.0.33, MASK:255.255.255.0, GW:10.42.0.1, MAC:02:0d:3d:92:75:c4, LEASE_S:3600, NET_UP_S:32, HTTP_UP_S:32, HTTP_REQ:31
 ```
 
 - Ping answers in 0.1–0.2 ms with no loss. ICMP is handled by the W5500 hardware, without firmware code.
 - The ARP entry has the UID-derived MAC `02:0d:3d:92:75:c4`, the same as in the JSON and in `NET`. The DHCP lease is 3600 s.
 - In the JSON, `env` is fresh (0.3 s) and GPS is stale. The test ran indoors with no satellites (`sats: 0`), so the position is the last fix, 153 s old, and `stale.gps` is `true` as intended.
-- `time_utc` shows **2007**: the GPS module has the week-number rollover bug and reports a date exactly 1024 weeks too early (2007-04-01 + 1024 weeks = 2026-11-15). The time of day is correct. See [Known limitations](#known-limitations).
+
+Below answer of the board for the sent over UART `NET` commnd is present:
+```text
+[CLI] STATE:UP, MODE:DHCP, LINK:UP, IP:10.42.0.33, MASK:255.255.255.0, GW:10.42.0.1, MAC:02:0d:3d:92:75:c4, LEASE_S:3600, NET_UP_S:32, HTTP_UP_S:32, HTTP_REQ:31
+```
+
+It was captured when board was in the DHCP mode and contains the same address and mask as above (`10.42.0.33/24`), default gateway match to the ip of the port set when configuring DHCP and mac match the generated one.
 
 ### 2. TCP traffic of the page polling `/status` (tcpdump)
 
-Captured on `eno1` while the page was open: 13 requests in 13 s, one TCP connection per request.
-
-One exchange, annotated:
-
-```text
-11:50:33.806933  PC  > dev  [S]               SYN
-11:50:33.806990  dev > PC   [S.] win 2048     SYN-ACK after 57 µs (W5500 hardware), MSS 1460
-11:50:33.807068  PC  > dev  [.]               ACK, connection open
-11:50:33.807281  PC  > dev  [P.] len 323      GET /status HTTP/1.1
-11:50:33.807373  dev > PC   [.]  win 1725     W5500 ACKs the request in hardware; 323 B now fill the 2 KB RX buffer
-11:50:33.843072  dev > PC   [.]  win 2048     window back to 2048: the firmware has called recv() (35.8 ms later)
-11:50:33.844924  dev > PC   [P.] len 515      HTTP/1.1 200 OK, headers + JSON in one segment (1.85 ms after recv)
-11:50:33.844924  dev > PC   [F.]              FIN right behind it (Connection: close)
-11:50:33.845026  PC  > dev  [.]               ACK
-11:50:33.845464  PC  > dev  [F.]              PC closes its side
-11:50:33.845510  dev > PC   [.]               last ACK, clean four-way close
-```
-
-The window update to 2048 shows when the firmware read the request, so the log separates waiting from processing:
-
-| | Min | Median | Max |
-|---|---|---|---|
-| Wait until the main loop reads the request | 15.4 ms | 31.5 ms | 308.7 ms |
-| Firmware processing (recv → response) | 1.21 ms | 1.60 ms | 1.85 ms |
-| TTFB (request → response) | 17.0 ms | 33.1 ms | 309.9 ms |
-
-- Request period 1.02–1.32 s: the page waits for each answer before scheduling the next poll one second after the previous one started.
-- The firmware itself needs only ~1.6 ms: reading the request, formatting the JSON and the SPI transfer. Almost all of the TTFB is the wait for the main loop. It polls the sockets once per pass, and a pass includes `HAL_Delay(50)`, the display update and the sensor reads.
-- One request waited 309 ms (11:50:42). The main loop was busy for longer during that pass; the cause was not identified from this capture.
-- The device advertises a 2048-byte window, the per-socket RX buffer size.
-
-<details>
-<summary>Full capture (143 packets)</summary>
+Below capture of the of the trafic on the `eno1` while the page was open: 13 requests in 13 s, one TCP connection per request.
 
 ```text
 ❯ sudo tcpdump -i eno1
@@ -494,7 +459,6 @@ listening on eno1, link-type EN10MB (Ethernet), snapshot length 262144 bytes
 0 packets dropped by kernel
 ```
 
-</details>
 
 ### 3. Static fallback (no DHCP server)
 
@@ -511,7 +475,9 @@ eno1             UP             192.168.4.1/24
 rtt min/avg/max/mdev = 0.095/0.157/0.261/0.073 ms
 ```
 
-The board answers at `192.168.4.50` with no loss. The display shows `STATIC  LINK UP` and `IP: 192.168.4.50/24`.
+The board answers at `192.168.4.50` with no loss. The display shows the fallback mode in yellow and the static address and gateway:
+
+![Display in static fallback mode](assets/display-static-fallback.jpg)
 
 ### 4. Back to DHCP
 
@@ -527,14 +493,6 @@ eno1             UP             10.42.0.1/24
 3 packets transmitted, 3 received, 0% packet loss, time 2034ms
 rtt min/avg/max/mdev = 0.112/0.135/0.159/0.019 ms
 ```
-
-
-## Known limitations
-
-- **TTFB above the 50 ms target in rare passes.** The median is 33 ms, but one request in the capture waited 310 ms. The sockets are polled once per main-loop pass, which includes `HAL_Delay(50)`. The firmware's own processing is ~1.6 ms.
-- **GPS date is 1024 weeks early** (week-number rollover in the module): `time_utc` shows 2007 instead of 2026. The time of day is correct.
-- **`lum` instead of `lux`**, and `fix` is only 0/1. See the [JSON table](#status-json).
-- **~0.8 s pause once per DHCP lease:** the ioLibrary DHCP client checks the leased IP for conflicts with a blocking ARP probe.
 
 
 ## Additional features
@@ -577,7 +535,7 @@ PING bp-411.local (192.168.4.50): 56 data bytes
 round-trip min/avg/max/stddev = 0.408/0.503/0.688/0.131 ms
 ```
 
-![](assets/mDNS.png)
+![/status opened by hostname bp-411.local in the browser](assets/mdns-status-in-browser.png)
 
 The hostname resolves on the local Ethernet segment without a router or an
 external DNS server. LLMNR is not used; macOS uses Bonjour/mDNS for this test.
@@ -644,25 +602,8 @@ WebSocket: ws://bp-411.local/ws
 Status: online · push
 ```
 
-![](assets/ws.png)
+![Page with WebSocket push updates and the ws connection (101) in DevTools](assets/websocket-page-devtools.png)
 
-**Additional tasks from the assignment**
-- **Stale age and an "old data" colour.** Stale sensor rows turn red and show how old the value is (` !12s`), instead of a plain stale flag. A sensor that never answered shows ` !--`.
-- **Log-scale light level instead of lux.** The `LUM:` row shows `log10(clear + 1)`. It is unit-less (not lux), spans about 0 to 4.8 for a 16-bit count, and keeps dark and bright scenes readable on the same scale.
-
-The second sensor is a TCS3472 instead of a BH1750, because no BH1750 was available. Besides the overall brightness (the clear channel) it returns separate red, green and blue counts, so the node sees the colour of the light as well as its level. All four channels are shown on the `CLR:` row and available over the CLI, and the clear channel also drives the `LUM:` row, which shows the light level.
-
-**CLI additions**
-
-| Command | Example reply |
-|---|---|
-| `GET BME` (alias `GET ENV`) | `[CLI] TEMP:22.51 C, PRESS:991.02 hPa, HUM:42.03 %, STALE:0, AGE_MS:412` |
-| `GET COLOR` (alias `GET TCS`) | `[CLI] CLEAR:562, RED:275, GREEN:237, BLUE:212, STALE:0, AGE_MS:380` |
-| `NET` | network state, addresses, lease, HTTP uptime and request count (see [CLI](#cli)) |
-
-**Robustness**
-- A sensor that is missing or fails to initialise is retried every second, and its display row shows `… INIT FAILED` until it answers, so a sensor can be plugged in after boot.
-- The network recovers by itself after cable loss or a failed lease renewal, and a silent HTTP client cannot block a socket for more than 2 s.
 
 ## udev rule (Linux host)
 
