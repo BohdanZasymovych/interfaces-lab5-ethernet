@@ -1,0 +1,36 @@
+# === STM32CubeIDE build output ===
+Debug/
+Release/
+
+# === Temporary files ===
+*.swp
+*.bak
+*~
+
+# === Python ===
+.venv/
+venv/
+.env
+env/
+__pycache__/
+*.pyc
+
+# === Auto-generated files that can be regenerated from .ioc ===
+Core/Startup/
+Core/Src/system_stm32*.c
+
+# === Optional: exclude build logs ===
+build.log
+
+# === macOS ===
+.DS_Store
+
+# === IDEs ===
+.vscode/
+.idea/
+
+*.zip
+
+data/*
+
+.clangd
