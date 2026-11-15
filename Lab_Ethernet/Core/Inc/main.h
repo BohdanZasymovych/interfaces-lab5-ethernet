@@ -46,6 +46,10 @@ void Process_CLI_Command(const char* cmd);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define W5500_RST_Pin       GPIO_PIN_1
+#define W5500_RST_GPIO_Port GPIOB
+#define W5500_CS_Pin        GPIO_PIN_12
+#define W5500_CS_GPIO_Port  GPIOB
 
 /* USER CODE BEGIN Private defines */
 

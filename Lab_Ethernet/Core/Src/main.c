@@ -19,6 +19,10 @@
 #include "utils/ui.h"
 #include "utils/bme280.h"
 #include "utils/tcs3472.h"
+#include "utils/w5500_port.h"
+#include "utils/net.h"
+#include "utils/status.h"
+#include "utils/http_server.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
@@ -43,6 +47,7 @@
 I2C_HandleTypeDef hi2c2;
 
 SPI_HandleTypeDef hspi1;
+SPI_HandleTypeDef hspi2;
 DMA_HandleTypeDef hdma_spi1_tx;
 
 UART_HandleTypeDef huart1;
@@ -58,6 +63,7 @@ static void MX_DMA_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_I2C2_Init(void);
+static void MX_SPI2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -106,6 +112,7 @@ int main(void) {
     MX_USB_DEVICE_Init();
     MX_SPI1_Init();
     MX_I2C2_Init();
+    MX_SPI2_Init();
     /* USER CODE BEGIN 2 */
     GPS_Flash_Load();
     GPS_Init(&huart1);
@@ -119,6 +126,10 @@ int main(void) {
     bmeSensorInitialized = BME280_Init(&hi2c2);
 
     colorSensorInitialized = TCS3472_Init(&hi2c2);
+
+    Status_Init(node_id);
+    NET_Init(W5500_Port_Init(&hspi2));
+    HTTP_Init();
 
     HAL_Delay(500);
     const char* welcome_msg = "System Ready. Point 5.4 initialized.\r\n";
@@ -184,7 +195,13 @@ int main(void) {
             } else {
                 colorSensorInitialized = TCS3472_Init(&hi2c2);
             }
+
+            NET_Tick1s();
         }
+
+        Status_Update(now);
+        NET_Process(now);
+        HTTP_Process(now);
 
         UI_Update(now);
 
@@ -296,6 +313,39 @@ static void MX_SPI1_Init(void) {
 }
 
 /**
+ * @brief SPI2 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_SPI2_Init(void) {
+
+    /* USER CODE BEGIN SPI2_Init 0 */
+
+    /* USER CODE END SPI2_Init 0 */
+
+    /* USER CODE BEGIN SPI2_Init 1 */
+
+    /* USER CODE END SPI2_Init 1 */
+    /* SPI2 parameter configuration*/
+    hspi2.Instance = SPI2;
+    hspi2.Init.Mode = SPI_MODE_MASTER;
+    hspi2.Init.Direction = SPI_DIRECTION_2LINES;
+    hspi2.Init.DataSize = SPI_DATASIZE_8BIT;
+    hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
+    hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
+    hspi2.Init.NSS = SPI_NSS_SOFT;
+    hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;
+    hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
+    hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
+    hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+    hspi2.Init.CRCPolynomial = 10;
+    if (HAL_SPI_Init(&hspi2) != HAL_OK) { Error_Handler(); }
+    /* USER CODE BEGIN SPI2_Init 2 */
+
+    /* USER CODE END SPI2_Init 2 */
+}
+
+/**
  * @brief USART1 Initialization Function
  * @param None
  * @retval None
@@ -361,7 +411,10 @@ static void MX_GPIO_Init(void) {
     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
 
     /*Configure GPIO pin Output Level */
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_8, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOB, W5500_RST_Pin | GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_8, GPIO_PIN_RESET);
+
+    /*Configure GPIO pin Output Level */
+    HAL_GPIO_WritePin(W5500_CS_GPIO_Port, W5500_CS_Pin, GPIO_PIN_SET);
 
     /*Configure GPIO pin : PC13 */
     GPIO_InitStruct.Pin = GPIO_PIN_13;
@@ -370,8 +423,9 @@ static void MX_GPIO_Init(void) {
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
     HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-    /*Configure GPIO pins : PB6 PB7 PB8 */
-    GPIO_InitStruct.Pin = GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_8;
+    /*Configure GPIO pins : W5500_RST_Pin W5500_CS_Pin PB6 PB7
+                             PB8 */
+    GPIO_InitStruct.Pin = W5500_RST_Pin | W5500_CS_Pin | GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_8;
     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
