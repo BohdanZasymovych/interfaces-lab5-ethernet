@@ -5,12 +5,12 @@
  * Plain HTML/CSS/JS, no framework: the board is often on a direct link without
  * internet, so nothing can be loaded from a CDN.
  *
- * - polls /status once per second (setTimeout chain, 900 ms timeout per request)
+ * - receives the status JSON once per second over a WebSocket (/ws), reconnects after 1 s
  * - the DOM is built once; updates only change textContent/className of values
  *   that changed, so nothing flickers
  * - per block: "live" / "stale N s" (age > 3 s or stale flag) / "no data" badge,
  *   data age from stale_age_s; values of a stale block are dimmed
- * - device unreachable: "offline" badge, last values stay, their age keeps growing
+ * - connection lost: "reconnecting" badge, last values stay, their age keeps growing
  *
  * Edit the HTML inside the strings; keep one HTML line per C string line.
  */
