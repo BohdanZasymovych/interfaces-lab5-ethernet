@@ -1,36 +1,48 @@
-# === STM32CubeIDE build output ===
+# ---------------------------------------------------------------------------
+# Build output (STM32CubeIDE build configurations and loose firmware images)
+# ---------------------------------------------------------------------------
 Debug/
 Release/
+*.elf
+*.bin
+*.hex
+*.map
+*.list
+build.log
 
-# === Temporary files ===
+# ---------------------------------------------------------------------------
+# Editor / IDE (machine-specific)
+# ---------------------------------------------------------------------------
+.vscode/
+.idea/
+.metadata/
+# clangd config holds absolute toolchain paths of one machine
+.clangd
 *.swp
-*.bak
 *~
+*.bak
 
-# === Python ===
+# ---------------------------------------------------------------------------
+# Host tools (Python scripts, virtual environments)
+# ---------------------------------------------------------------------------
 .venv/
 venv/
-.env
 env/
+.env
 __pycache__/
 *.pyc
 
-# === Auto-generated files that can be regenerated from .ioc ===
-Core/Startup/
-Core/Src/system_stm32*.c
-
-# === Optional: exclude build logs ===
-build.log
-
-# === macOS ===
+# ---------------------------------------------------------------------------
+# OS files
+# ---------------------------------------------------------------------------
 .DS_Store
+Thumbs.db
 
-# === IDEs ===
-.vscode/
-.idea/
-
+# ---------------------------------------------------------------------------
+# Local files that are not part of the project
+# ---------------------------------------------------------------------------
+# Course material and submission archives
+lab_manual.pdf
 *.zip
-
+# Captures, logs and other local data
 data/*
-
-.clangd
