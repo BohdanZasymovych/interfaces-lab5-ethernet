@@ -23,6 +23,7 @@
 #include "utils/net.h"
 #include "utils/status.h"
 #include "utils/http_server.h"
+#include "utils/mdns.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
@@ -130,6 +131,7 @@ int main(void) {
     Status_Init(node_id);
     NET_Init(W5500_Port_Init(&hspi2));
     HTTP_Init();
+    MDNS_Init();
 
     HAL_Delay(500);
     const char* welcome_msg = "System Ready. Point 5.4 initialized.\r\n";
@@ -201,6 +203,7 @@ int main(void) {
 
         Status_Update(now);
         NET_Process(now);
+        MDNS_Process(now);
         HTTP_Process(now);
 
         UI_Update(now);
