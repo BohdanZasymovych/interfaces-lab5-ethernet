@@ -539,6 +539,113 @@ rtt min/avg/max/mdev = 0.112/0.135/0.159/0.019 ms
 
 ## Additional features
 
+### mDNS/Bonjour hostname
+
+Added an mDNS responder for the Ethernet interface. The device is available by
+hostname `bp-411.local` instead of requiring a numeric IP address.
+
+- UDP port: `5353`
+- Multicast address: `224.0.0.251`
+- mDNS socket: W5500 socket `6`
+- IPv4 record: `bp-411.local -> 192.168.4.50` in static mode
+- Initial announcements: three packets after the network comes up
+- Refresh announcements: every 30 s
+- Direct unicast replies are sent to the host that asks for the record
+
+The implementation is in `Core/Src/utils/mdns.c` with its public interface in
+`Core/Inc/utils/mdns.h`. `MDNS_Init()` is called during startup and
+`MDNS_Process()` is called from the main loop after network processing.
+
+Verification on macOS:
+
+```text
+❯ dns-sd -G v4 bp-411.local
+DATE: ---Sun 15 Nov 2026---
+17:30:15.715  ...STARTING...
+Timestamp     A/R    Flags if Hostname                               Address                                      TTL
+17:30:15.715  Add 40000002 19 bp-411.local.                          192.168.4.50                                 120
+^C                      120
+
+❯ ping -c 3 bp-411.local
+PING bp-411.local (192.168.4.50): 56 data bytes
+64 bytes from 192.168.4.50: icmp_seq=0 ttl=128 time=0.412 ms
+64 bytes from 192.168.4.50: icmp_seq=1 ttl=128 time=0.408 ms
+64 bytes from 192.168.4.50: icmp_seq=2 ttl=128 time=0.688 ms
+
+--- bp-411.local ping statistics ---
+3 packets transmitted, 3 packets received, 0.0% packet loss
+round-trip min/avg/max/stddev = 0.408/0.503/0.688/0.131 ms
+```
+
+![](assets/mDNS.png)
+
+The hostname resolves on the local Ethernet segment without a router or an
+external DNS server. LLMNR is not used; macOS uses Bonjour/mDNS for this test.
+
+### CBOR status endpoint
+
+Added a compact binary representation of the device status. The existing JSON
+endpoint remains available at `/status`; CBOR is provided at `/status.cbor` for
+machine-to-machine communication with lower payload overhead.
+
+- Endpoint: `GET /status.cbor`
+- Content type: `application/cbor`
+- Payload: the same status map as `/status`
+- Numeric values: CBOR IEEE-754 binary32 floats where applicable
+- Missing values: CBOR `null`
+- Buffer size: `STATUS_CBOR_MAX_LEN` (`384` bytes)
+- JSON compatibility: `/status` is unchanged
+
+The encoder is implemented in `Core/Src/utils/status.c`, declared in
+`Core/Inc/utils/status.h`, and routed by `Core/Src/utils/http_server.c`.
+
+Verification on macOS:
+
+```text
+❯ curl -D headers.txt -o status.cbor http://bp-411.local/status.cbor
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100   257  100   257    0     0     50      0  0:00:05  0:00:05 --:--:--    63
+
+❯ .venv-cbor/bin/python -c 'import cbor2; print(cbor2.load(open("status.cbor", "rb")))'
+{'proto_ver': 1, 'device_id': 'bp-401-630a', 'time_utc': None, 'gps': {'lat': 49.82065963745117, 'lon': 24.02518653869629, 'fix': 1, 'sats': 0}, 'env': {'t_c': 21.149999618530273, 'p_hpa': 980.6500244140625, 'rh_pct': 30.3310546875, 'lum': 3.016615629196167}, 'stale_age_s': {'gps': None, 'env': 0.6200000047683716}, 'stale': {'gps': True, 'env': False}, 'net': {'mode': 'STATIC', 'ip': '192.168.4.50', 'mask': '255.255.255.0', 'gw': '192.168.4.1', 'mac': '02:0d:3d:92:75:c4'}}
+
+❯ cat headers.txt
+HTTP/1.1 200 OK
+Content-Type: application/cbor
+Content-Length: 257
+Cache-Control: no-store
+Access-Control-Allow-Origin: *
+Connection: close
+```
+
+The endpoint is intended for software clients; browsers may display or
+download the response as binary data rather than render it as text.
+
+### WebSocket status updates
+
+Added a WebSocket endpoint for push-based status updates. The web page opens a
+persistent connection and receives the status JSON once per second.
+
+- Endpoint: `ws://bp-411.local/ws`
+- Handshake: HTTP `101 Switching Protocols`
+- Update period: 1 s
+- Automatic reconnect after connection loss
+
+The handshake and WebSocket state machine are implemented in
+`Core/Src/utils/http_server.c`; the browser client is embedded in
+`Core/Src/utils/web_page.c`.
+
+Verification in the browser, shown in the screenshot:
+
+```text
+URL: http://bp-411.local/
+WebSocket: ws://bp-411.local/ws
+Status: online · push
+```
+
+![](assets/ws.png)
+
 **Additional tasks from the assignment**
 - **Stale age and an "old data" colour.** Stale sensor rows turn red and show how old the value is (` !12s`), instead of a plain stale flag. A sensor that never answered shows ` !--`.
 - **Log-scale light level instead of lux.** The `LUM:` row shows `log10(clear + 1)`. It is unit-less (not lux), spans about 0 to 4.8 for a 16-bit count, and keeps dark and bright scenes readable on the same scale.
