@@ -5,12 +5,12 @@
 #include <stdbool.h>
 #include <string.h>
 
-#define MDNS_RX_SIZE             256u
-#define MDNS_TX_SIZE             128u
-#define MDNS_ANNOUNCE_COUNT      3u
-#define MDNS_ANNOUNCE_PERIOD_MS  1000u
-#define MDNS_REFRESH_PERIOD_MS   30000u
-#define MDNS_TTL_S               120u
+#define MDNS_RX_SIZE            256u
+#define MDNS_TX_SIZE            128u
+#define MDNS_ANNOUNCE_COUNT     3u
+#define MDNS_ANNOUNCE_PERIOD_MS 1000u
+#define MDNS_REFRESH_PERIOD_MS  30000u
+#define MDNS_TTL_S              120u
 
 _Static_assert(MDNS_SOCKET < NET_DHCP_SOCKET, "mDNS socket overlaps DHCP socket");
 
@@ -37,9 +37,7 @@ static void mdns_close_socket(void) {
 
 static bool mdns_write_name(uint8_t* dst, uint16_t capacity, uint16_t* pos) {
     static const uint8_t name[] = {
-            6, 'b', 'p', '-', '4', '1', '1',
-            5, 'l', 'o', 'c', 'a', 'l',
-            0,
+            6, 'b', 'p', '-', '4', '1', '1', 5, 'l', 'o', 'c', 'a', 'l', 0,
     };
 
     if ((uint16_t) (*pos + sizeof(name)) > capacity) return false;
@@ -94,9 +92,9 @@ static uint16_t mdns_build_response(uint8_t* response, uint16_t capacity, const 
     response[pos++] = 0x84;  // response, authoritative answer
     response[pos++] = 0x00;
     response[pos++] = 0;
-    response[pos++] = 0;     // no question section in the response
+    response[pos++] = 0;  // no question section in the response
     response[pos++] = 0;
-    response[pos++] = 1;     // one answer
+    response[pos++] = 1;  // one answer
     response[pos++] = 0;
     response[pos++] = 0;
     response[pos++] = 0;

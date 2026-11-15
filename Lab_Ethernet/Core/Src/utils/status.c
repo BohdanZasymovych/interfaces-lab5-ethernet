@@ -313,46 +313,70 @@ size_t Status_FormatCbor(uint8_t* buf, size_t len, uint32_t now) {
     cbor_writer_t w = {.buf = buf, .len = len, .pos = 0, .overflow = false};
 
     cbor_put_map(&w, 8);
-    cbor_put_key(&w, "proto_ver"); cbor_put_uint(&w, STATUS_PROTO_VER);
-    cbor_put_key(&w, "device_id"); cbor_put_text(&w, s->device_id);
+    cbor_put_key(&w, "proto_ver");
+    cbor_put_uint(&w, STATUS_PROTO_VER);
+    cbor_put_key(&w, "device_id");
+    cbor_put_text(&w, s->device_id);
     cbor_put_key(&w, "time_utc");
-    if (s->time_utc[0] != '\0') cbor_put_text(&w, s->time_utc); else cbor_put_null(&w);
+    if (s->time_utc[0] != '\0')
+        cbor_put_text(&w, s->time_utc);
+    else
+        cbor_put_null(&w);
 
     cbor_put_key(&w, "gps");
     cbor_put_map(&w, 4);
-    cbor_put_key(&w, "lat"); cbor_put_float(&w, s->gps.valid, (float) s->gps.lat);
-    cbor_put_key(&w, "lon"); cbor_put_float(&w, s->gps.valid, (float) s->gps.lon);
-    cbor_put_key(&w, "fix"); cbor_put_uint(&w, s->gps.fix);
-    cbor_put_key(&w, "sats"); cbor_put_uint(&w, s->gps.sats);
+    cbor_put_key(&w, "lat");
+    cbor_put_float(&w, s->gps.valid, (float) s->gps.lat);
+    cbor_put_key(&w, "lon");
+    cbor_put_float(&w, s->gps.valid, (float) s->gps.lon);
+    cbor_put_key(&w, "fix");
+    cbor_put_uint(&w, s->gps.fix);
+    cbor_put_key(&w, "sats");
+    cbor_put_uint(&w, s->gps.sats);
 
     cbor_put_key(&w, "env");
     cbor_put_map(&w, 4);
-    cbor_put_key(&w, "t_c"); cbor_put_float(&w, s->env.valid, s->env.t_c);
-    cbor_put_key(&w, "p_hpa"); cbor_put_float(&w, s->env.valid, s->env.p_hpa);
-    cbor_put_key(&w, "rh_pct"); cbor_put_float(&w, s->env.valid, s->env.rh_pct);
-    cbor_put_key(&w, "lum"); cbor_put_float(&w, s->env.lum_valid, s->env.lum);
+    cbor_put_key(&w, "t_c");
+    cbor_put_float(&w, s->env.valid, s->env.t_c);
+    cbor_put_key(&w, "p_hpa");
+    cbor_put_float(&w, s->env.valid, s->env.p_hpa);
+    cbor_put_key(&w, "rh_pct");
+    cbor_put_float(&w, s->env.valid, s->env.rh_pct);
+    cbor_put_key(&w, "lum");
+    cbor_put_float(&w, s->env.lum_valid, s->env.lum);
 
     cbor_put_key(&w, "stale_age_s");
     cbor_put_map(&w, 2);
     cbor_put_key(&w, "gps");
-    if (s->gps.timestamp_ms == 0) cbor_put_null(&w);
-    else cbor_put_float(&w, true, (float) (now - s->gps.timestamp_ms) / 1000.0f);
+    if (s->gps.timestamp_ms == 0)
+        cbor_put_null(&w);
+    else
+        cbor_put_float(&w, true, (float) (now - s->gps.timestamp_ms) / 1000.0f);
     cbor_put_key(&w, "env");
-    if (s->env.timestamp_ms == 0) cbor_put_null(&w);
-    else cbor_put_float(&w, true, (float) (now - s->env.timestamp_ms) / 1000.0f);
+    if (s->env.timestamp_ms == 0)
+        cbor_put_null(&w);
+    else
+        cbor_put_float(&w, true, (float) (now - s->env.timestamp_ms) / 1000.0f);
 
     cbor_put_key(&w, "stale");
     cbor_put_map(&w, 2);
-    cbor_put_key(&w, "gps"); cbor_put_bool(&w, status_is_stale(s->gps.timestamp_ms, now));
-    cbor_put_key(&w, "env"); cbor_put_bool(&w, status_is_stale(s->env.timestamp_ms, now));
+    cbor_put_key(&w, "gps");
+    cbor_put_bool(&w, status_is_stale(s->gps.timestamp_ms, now));
+    cbor_put_key(&w, "env");
+    cbor_put_bool(&w, status_is_stale(s->env.timestamp_ms, now));
 
     cbor_put_key(&w, "net");
     cbor_put_map(&w, 5);
-    cbor_put_key(&w, "mode"); cbor_put_text(&w, NET_ModeName(net->mode));
-    cbor_put_key(&w, "ip"); cbor_put_ip(&w, net->ip);
-    cbor_put_key(&w, "mask"); cbor_put_ip(&w, net->mask);
-    cbor_put_key(&w, "gw"); cbor_put_ip(&w, net->gw);
-    cbor_put_key(&w, "mac"); cbor_put_mac(&w, net->mac);
+    cbor_put_key(&w, "mode");
+    cbor_put_text(&w, NET_ModeName(net->mode));
+    cbor_put_key(&w, "ip");
+    cbor_put_ip(&w, net->ip);
+    cbor_put_key(&w, "mask");
+    cbor_put_ip(&w, net->mask);
+    cbor_put_key(&w, "gw");
+    cbor_put_ip(&w, net->gw);
+    cbor_put_key(&w, "mac");
+    cbor_put_mac(&w, net->mac);
 
     if (w.overflow) {
         buf[0] = 0;

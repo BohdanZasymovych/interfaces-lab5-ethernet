@@ -22,8 +22,8 @@
  *            └─ http_disconnect
  */
 
-#define HTTP_HEADER_MAX_LEN 256u  // Status line + headers of one response
-#define HTTP_METHOD_MAX_LEN 8u    // "GET", "POST", "OPTIONS", ...
+#define HTTP_HEADER_MAX_LEN   256u  // Status line + headers of one response
+#define HTTP_METHOD_MAX_LEN   8u    // "GET", "POST", "OPTIONS", ...
 #define HTTP_WS_FRAME_MAX_LEN 128u
 
 _Static_assert(HTTP_SOCKET_FIRST + HTTP_SOCKET_COUNT <= NET_DHCP_SOCKET, "HTTP sockets overlap the DHCP socket");
@@ -77,8 +77,10 @@ static void http_sha1(const uint8_t* input, size_t length, uint8_t digest[20]) {
         memset(block, 0, sizeof(block));
         for (size_t i = 0; i < 64u; i++) {
             size_t source = offset + i;
-            if (source < length) block[i] = input[source];
-            else if (source == length) block[i] = 0x80u;
+            if (source < length)
+                block[i] = input[source];
+            else if (source == length)
+                block[i] = 0x80u;
         }
         if (offset + 64u == padded) {
             for (uint8_t i = 0; i < 8u; i++) block[56u + i] = (uint8_t) (bit_length >> (56u - 8u * i));
@@ -94,16 +96,34 @@ static void http_sha1(const uint8_t* input, size_t length, uint8_t digest[20]) {
         uint32_t a = h[0], b = h[1], c = h[2], d = h[3], e = h[4];
         for (uint8_t i = 0; i < 80u; i++) {
             uint32_t f, k;
-            if (i < 20u) { f = (b & c) | ((~b) & d); k = 0x5A827999u; }
-            else if (i < 40u) { f = b ^ c ^ d; k = 0x6ED9EBA1u; }
-            else if (i < 60u) { f = (b & c) | (b & d) | (c & d); k = 0x8F1BBCDCu; }
-            else { f = b ^ c ^ d; k = 0xCA62C1D6u; }
+            if (i < 20u) {
+                f = (b & c) | ((~b) & d);
+                k = 0x5A827999u;
+            } else if (i < 40u) {
+                f = b ^ c ^ d;
+                k = 0x6ED9EBA1u;
+            } else if (i < 60u) {
+                f = (b & c) | (b & d) | (c & d);
+                k = 0x8F1BBCDCu;
+            } else {
+                f = b ^ c ^ d;
+                k = 0xCA62C1D6u;
+            }
             uint32_t temp = http_sha1_rotate(a, 5) + f + e + k + w[i];
-            e = d; d = c; c = http_sha1_rotate(b, 30); b = a; a = temp;
+            e = d;
+            d = c;
+            c = http_sha1_rotate(b, 30);
+            b = a;
+            a = temp;
         }
-        h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e;
+        h[0] += a;
+        h[1] += b;
+        h[2] += c;
+        h[3] += d;
+        h[4] += e;
     }
-    for (uint8_t i = 0; i < 5u; i++) for (uint8_t j = 0; j < 4u; j++) digest[4u * i + j] = (uint8_t) (h[i] >> (24u - 8u * j));
+    for (uint8_t i = 0; i < 5u; i++)
+        for (uint8_t j = 0; j < 4u; j++) digest[4u * i + j] = (uint8_t) (h[i] >> (24u - 8u * j));
 }
 
 static size_t http_base64(const uint8_t* input, size_t length, char* output, size_t capacity) {
@@ -143,7 +163,8 @@ static bool http_ws_handshake(uint8_t sn, uint32_t now) {
 
     int length = snprintf(http_tx_buf, sizeof(http_tx_buf),
                           "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
-                          "Sec-WebSocket-Accept: %s\r\n\r\n", accept);
+                          "Sec-WebSocket-Accept: %s\r\n\r\n",
+                          accept);
     if (length <= 0 || !http_send_all(sn, (const uint8_t*) http_tx_buf, (uint32_t) length)) return false;
     http_sockets[sn - HTTP_SOCKET_FIRST].websocket = true;
     http_sockets[sn - HTTP_SOCKET_FIRST].next_ws_ms = now;
@@ -175,7 +196,8 @@ static bool http_ws_process_input(uint8_t sn) {
         uint8_t pong[HTTP_WS_FRAME_MAX_LEN];
         uint8_t payload = frame[1] & 0x7Fu;
         if (payload > sizeof(pong) - 2u || length < (int32_t) (2u + payload)) return true;
-        pong[0] = 0x8Au; pong[1] = payload;
+        pong[0] = 0x8Au;
+        pong[1] = payload;
         memcpy(pong + 2, frame + 2, payload);
         return http_send_all(sn, pong, (uint32_t) payload + 2u);
     }
@@ -354,9 +376,7 @@ static void http_handle_request(uint8_t sn, uint32_t now) {
 
     http_request_count++;
 
-    if (sent && upgraded) {
-        return;
-    }
+    if (sent && upgraded) { return; }
     if (sent) {
         http_disconnect(sn, now);
     } else {
