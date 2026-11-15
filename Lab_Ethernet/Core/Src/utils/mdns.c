@@ -9,6 +9,7 @@
 #define MDNS_TX_SIZE             128u
 #define MDNS_ANNOUNCE_COUNT      3u
 #define MDNS_ANNOUNCE_PERIOD_MS  1000u
+#define MDNS_REFRESH_PERIOD_MS   30000u
 #define MDNS_TTL_S               120u
 
 _Static_assert(MDNS_SOCKET < NET_DHCP_SOCKET, "mDNS socket overlaps DHCP socket");
@@ -125,6 +126,12 @@ static void mdns_send_announcement(void) {
     if (length != 0) sendto(MDNS_SOCKET, mdns_tx, length, (uint8_t*) mdns_multicast_ip, MDNS_PORT);
 }
 
+static void mdns_send_response_to(uint8_t* destination_ip, uint16_t destination_port) {
+    const net_info_t* net = NET_GetInfo();
+    uint16_t length = mdns_build_response(mdns_tx, sizeof(mdns_tx), net->ip);
+    if (length != 0) sendto(MDNS_SOCKET, mdns_tx, length, destination_ip, destination_port);
+}
+
 void MDNS_Init(void) {
     memset(mdns_rx, 0, sizeof(mdns_rx));
     memset(mdns_tx, 0, sizeof(mdns_tx));
@@ -155,10 +162,14 @@ void MDNS_Process(uint32_t now) {
 
     if (getSn_SR(MDNS_SOCKET) != SOCK_UDP) return;
 
-    if (mdns_announcements_left != 0 && mdns_time_reached(now, mdns_next_announce_ms)) {
+    if (mdns_time_reached(now, mdns_next_announce_ms)) {
         mdns_send_announcement();
-        mdns_announcements_left--;
-        mdns_next_announce_ms = now + MDNS_ANNOUNCE_PERIOD_MS;
+        if (mdns_announcements_left != 0) {
+            mdns_announcements_left--;
+            mdns_next_announce_ms = now + MDNS_ANNOUNCE_PERIOD_MS;
+        } else {
+            mdns_next_announce_ms = now + MDNS_REFRESH_PERIOD_MS;
+        }
     }
 
     if (getSn_RX_RSR(MDNS_SOCKET) != 0) {
@@ -169,10 +180,9 @@ void MDNS_Process(uint32_t now) {
             uint16_t question_end;
             if (mdns_parse_question(mdns_rx, (uint16_t) received, &question_end)) {
                 (void) question_end;
-                uint16_t response_length = mdns_build_response(mdns_tx, sizeof(mdns_tx), net->ip);
-                if (response_length != 0) {
-                    sendto(MDNS_SOCKET, mdns_tx, response_length, (uint8_t*) mdns_multicast_ip, MDNS_PORT);
-                }
+                // A direct response avoids relying only on multicast delivery and
+                // lets Bonjour refresh its cache immediately after a lookup.
+                mdns_send_response_to(source_ip, source_port);
             }
         }
     }
